@@ -684,8 +684,6 @@ fn tdjson_sources(config: &Config) -> Vec<OsString> {
 fn default_tdjson_name() -> &'static str {
     if cfg!(target_os = "macos") {
         "libtdjson.dylib"
-    } else if cfg!(target_os = "windows") {
-        "tdjson.dll"
     } else {
         "libtdjson.so"
     }
@@ -756,7 +754,7 @@ fn ensure_socket_parent(path: &Path) -> Result<()> {
         if !parent.is_dir() {
             bail!("socket parent is not a directory: {}", parent.display());
         }
-        return Ok(());
+        return set_private_file_permissions(parent, PRIVATE_DIR_MODE);
     }
 
     fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
@@ -771,11 +769,6 @@ fn is_unix_socket(path: &Path) -> Result<bool> {
         .with_context(|| format!("failed to inspect {}", path.display()))?
         .file_type()
         .is_socket())
-}
-
-#[cfg(not(unix))]
-fn is_unix_socket(_path: &Path) -> Result<bool> {
-    Ok(false)
 }
 
 fn remove_socket_if_present(path: &Path) -> Result<bool> {
@@ -807,11 +800,6 @@ fn set_private_file_permissions(path: &Path, mode: u32) -> Result<()> {
         .with_context(|| format!("failed to set {mode:o} permissions on {}", path.display()))
 }
 
-#[cfg(not(unix))]
-fn set_private_file_permissions(_path: &Path, _mode: u32) -> Result<()> {
-    Ok(())
-}
-
 fn xdg_paths() -> Result<XdgPaths> {
     let base = BaseDirs::new().ok_or_else(|| anyhow!("failed to resolve home directory"))?;
 
@@ -821,18 +809,21 @@ fn xdg_paths() -> Result<XdgPaths> {
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| base.home_dir().join(".local/share"));
-    let runtime_home = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
-            std::env::temp_dir().join(format!("tgdyk-{user}"))
-        });
+    let socket_path =
+        if let Some(runtime_home) = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
+            runtime_home.join("tgdyk/tgdyk.sock")
+        } else {
+            let cache_home = std::env::var_os("XDG_CACHE_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| base.home_dir().join(".cache"));
+            cache_home.join("tgdyk/run/tgdyk.sock")
+        };
 
     Ok(XdgPaths {
         config_file: config_home.join("tgdyk/config.toml"),
         database_dir: data_home.join("tgdyk/tdlib/database"),
         files_dir: data_home.join("tgdyk/tdlib/files"),
-        socket_path: runtime_home.join("tgdyk/tgdyk.sock"),
+        socket_path,
     })
 }
 
@@ -859,6 +850,23 @@ fn check(label: &str, result: Result<String>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+    static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let id = NEXT_TEST_DIR.fetch_add(1, AtomicOrdering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "tgdyk-test-{}-{name}-{nanos}-{id}",
+            std::process::id()
+        ));
+        fs::create_dir(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn reads_tdlib_type_names() {
@@ -887,11 +895,7 @@ mod tests {
 
     #[test]
     fn saves_api_credentials_to_config() {
-        let suffix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("tgdyk-test-{}-{suffix}", std::process::id()));
+        let dir = temp_test_dir("config");
         let path = dir.join("config.toml");
         let config = FileConfig {
             api_id: Some(12345),
@@ -915,14 +919,9 @@ mod tests {
 
     #[tokio::test]
     async fn regular_file_at_socket_path_is_rejected() {
-        let suffix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("tgdyk-test-{}-{suffix}", std::process::id()));
+        let dir = temp_test_dir("socket-file");
         let path = dir.join("tgdyk.sock");
 
-        fs::create_dir_all(&dir).unwrap();
         fs::write(&path, b"not a socket").unwrap();
 
         let error = bind_socket(&path).await.unwrap_err();
@@ -939,20 +938,30 @@ mod tests {
 
     #[test]
     fn remove_socket_if_present_keeps_regular_file() {
-        let suffix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("tgdyk-test-{}-{suffix}", std::process::id()));
+        let dir = temp_test_dir("remove-socket");
         let path = dir.join("tgdyk.sock");
 
-        fs::create_dir_all(&dir).unwrap();
         fs::write(&path, b"not a socket").unwrap();
 
         assert!(!remove_socket_if_present(&path).unwrap());
         assert!(path.exists());
 
         fs::remove_file(path).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn existing_socket_parent_is_made_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("socket-parent");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+        ensure_socket_parent(&dir.join("tgdyk.sock")).unwrap();
+
+        let mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, PRIVATE_DIR_MODE);
+
         fs::remove_dir_all(dir).unwrap();
     }
 }
