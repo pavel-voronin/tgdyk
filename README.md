@@ -10,8 +10,8 @@ without running a full app.
 Log in once. Keep one Telegram user session open. Stream live updates to local
 tools as newline-delimited JSON.
 
-`tgdyk` does not store history, replay missed updates, or decide what updates
-mean. It is just the local Telegram pipe.
+`tgdyk` does not keep its own history or replay log, and it does not decide
+what updates mean. TDLib still stores the local Telegram session/cache database.
 
 ## Quick Start
 
