@@ -121,7 +121,11 @@ jobs:
           TDLIB_REF: ${{ needs.prepare.outputs.tdlib_ref }}
         run: |
           mkdir -p package
-          cp -a install/lib/${{ matrix.lib }}* package/
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cp -a install/lib/libtdjson*.dylib package/
+          else
+            cp -a install/lib/${{ matrix.lib }}* package/
+          fi
           cp td/LICENSE_1_0.txt package/TDLIB-LICENSE_1_0.txt
           printf '%s\n' "$TDLIB_REF" > package/TDLIB_REF
           if [ "$RUNNER_OS" = "macOS" ]; then
