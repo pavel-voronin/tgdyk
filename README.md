@@ -92,9 +92,6 @@ Supported config keys:
 ```toml
 api_id = 12345
 api_hash = "your_api_hash"
-database_dir = "/path/to/database"
-files_dir = "/path/to/files"
-socket_path = "/path/to/tgdyk.sock"
 ```
 
 Default runtime paths:
@@ -112,9 +109,6 @@ Environment overrides:
 
 ```text
 TDJSON_PATH
-TDLIB_DATABASE_DIR
-TDLIB_FILES_DIR
-TGDYK_SOCKET_PATH
 TGDYK_CONFIG
 ```
 

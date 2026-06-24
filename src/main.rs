@@ -38,15 +38,6 @@ struct Cli {
     #[arg(long, global = true, env = "TGDYK_CONFIG")]
     config: Option<PathBuf>,
 
-    #[arg(long, global = true, env = "TDLIB_DATABASE_DIR")]
-    database_dir: Option<PathBuf>,
-
-    #[arg(long, global = true, env = "TDLIB_FILES_DIR")]
-    files_dir: Option<PathBuf>,
-
-    #[arg(long, global = true, env = "TGDYK_SOCKET_PATH")]
-    socket_path: Option<PathBuf>,
-
     #[command(subcommand)]
     command: Command,
 }
@@ -81,12 +72,6 @@ struct FileConfig {
     api_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     api_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    database_dir: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    files_dir: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    socket_path: Option<PathBuf>,
 }
 
 struct Config {
@@ -702,21 +687,9 @@ fn load_config(cli: &Cli) -> Result<Config> {
         tdjson_path: std::env::var_os("TDJSON_PATH").map(PathBuf::from),
         api_id: file.api_id,
         api_hash: file.api_hash,
-        database_dir: cli
-            .database_dir
-            .clone()
-            .or(file.database_dir)
-            .unwrap_or(xdg.database_dir),
-        files_dir: cli
-            .files_dir
-            .clone()
-            .or(file.files_dir)
-            .unwrap_or(xdg.files_dir),
-        socket_path: cli
-            .socket_path
-            .clone()
-            .or(file.socket_path)
-            .unwrap_or(xdg.socket_path),
+        database_dir: xdg.database_dir,
+        files_dir: xdg.files_dir,
+        socket_path: xdg.socket_path,
     })
 }
 
