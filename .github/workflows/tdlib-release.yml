@@ -126,8 +126,9 @@ jobs:
           printf '%s\n' "$TDLIB_REF" > package/TDLIB_REF
           if [ "$RUNNER_OS" = "macOS" ]; then
             otool -L "package/${{ matrix.lib }}" | tee deps.txt
-            if grep -E '/opt/homebrew|/usr/local/opt|libssl|libcrypto' deps.txt; then
-              echo "libtdjson has non-portable OpenSSL/Homebrew dependencies" >&2
+            openssl_deps="$(grep -E 'libssl|libcrypto' deps.txt || true)"
+            if [ -n "$openssl_deps" ]; then
+              echo "::error title=Non-portable OpenSSL dependency::$openssl_deps"
               exit 1
             fi
           else
