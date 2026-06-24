@@ -122,7 +122,15 @@ jobs:
         run: |
           mkdir -p package
           if [ "$RUNNER_OS" = "macOS" ]; then
-            cp -a install/lib/libtdjson*.dylib package/
+            find install/lib -maxdepth 1 -name 'libtdjson*dylib*' -exec cp -a {} package/ \;
+            if [ ! -e "package/${{ matrix.lib }}" ]; then
+              tdjson_dylib="$(find package -maxdepth 1 -name 'libtdjson*dylib*' ! -name '${{ matrix.lib }}' -print | head -n 1)"
+              if [ -z "$tdjson_dylib" ]; then
+                echo "::error title=Missing TDLib dylib::install/lib/libtdjson*dylib* did not produce a packaged dylib"
+                exit 1
+              fi
+              ln -s "$(basename "$tdjson_dylib")" "package/${{ matrix.lib }}"
+            fi
           else
             cp -a install/lib/${{ matrix.lib }}* package/
           fi
