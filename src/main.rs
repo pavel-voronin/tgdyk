@@ -3,7 +3,7 @@ compile_error!("tgdyk currently supports Unix platforms only");
 
 use std::{
     ffi::{CStr, CString, OsString},
-    fs,
+    fs::{self, OpenOptions},
     io::{self, Write},
     os::raw::{c_char, c_void},
     path::{Path, PathBuf},
@@ -704,12 +704,22 @@ fn read_file_config(path: &Path) -> Result<FileConfig> {
 }
 
 fn save_file_config(path: &Path, config: &FileConfig) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
     if let Some(parent) = path.parent() {
         ensure_private_dir(parent)?;
     }
 
     let text = toml::to_string_pretty(config).context("failed to serialize config")?;
-    fs::write(path, text).with_context(|| format!("failed to write config {}", path.display()))?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(PRIVATE_FILE_MODE)
+        .open(path)
+        .with_context(|| format!("failed to write config {}", path.display()))?;
+    file.write_all(text.as_bytes())
+        .with_context(|| format!("failed to write config {}", path.display()))?;
     set_private_file_permissions(path, PRIVATE_FILE_MODE)
 }
 
@@ -719,6 +729,8 @@ fn ensure_private_dir(path: &Path) -> Result<()> {
 }
 
 fn ensure_socket_parent(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
     let Some(parent) = path.parent() else {
         return Ok(());
     };
@@ -727,7 +739,18 @@ fn ensure_socket_parent(path: &Path) -> Result<()> {
         if !parent.is_dir() {
             bail!("socket parent is not a directory: {}", parent.display());
         }
-        return set_private_file_permissions(parent, PRIVATE_DIR_MODE);
+        let mode = fs::metadata(parent)
+            .with_context(|| format!("failed to inspect {}", parent.display()))?
+            .permissions()
+            .mode()
+            & 0o777;
+        if mode & 0o022 != 0 {
+            bail!(
+                "socket parent has insecure permissions {mode:o}: {}",
+                parent.display()
+            );
+        }
+        return Ok(());
     }
 
     fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
@@ -868,6 +891,8 @@ mod tests {
 
     #[test]
     fn saves_api_credentials_to_config() {
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = temp_test_dir("config");
         let path = dir.join("config.toml");
         let config = FileConfig {
@@ -885,6 +910,8 @@ mod tests {
             read_file_config(&path).unwrap().api_hash.as_deref(),
             Some("hash")
         );
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, PRIVATE_FILE_MODE);
 
         fs::remove_file(path).unwrap();
         fs::remove_dir_all(dir).unwrap();
@@ -924,16 +951,48 @@ mod tests {
     }
 
     #[test]
-    fn existing_socket_parent_is_made_private() {
+    fn created_socket_parent_is_made_private() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = temp_test_dir("socket-parent");
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        let dir = temp_test_dir("created-socket-parent");
+        let parent = dir.join("run");
 
+        ensure_socket_parent(&parent.join("tgdyk.sock")).unwrap();
+
+        let mode = fs::metadata(&parent).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, PRIVATE_DIR_MODE);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn existing_socket_parent_permissions_are_preserved() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("existing-socket-parent");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
         ensure_socket_parent(&dir.join("tgdyk.sock")).unwrap();
 
         let mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, PRIVATE_DIR_MODE);
+        assert_eq!(mode, 0o755);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn writable_socket_parent_is_rejected() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("writable-socket-parent");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
+
+        let error = ensure_socket_parent(&dir.join("tgdyk.sock")).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("socket parent has insecure permissions")
+        );
 
         fs::remove_dir_all(dir).unwrap();
     }
