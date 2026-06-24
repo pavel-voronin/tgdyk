@@ -136,6 +136,13 @@ jobs:
           fi
 
           package/tgdyk --help >/dev/null
+          set +e
+          TDJSON_PATH="$PWD/package/${{ matrix.lib }}" \
+            TGDYK_CONFIG="$PWD/package/missing-config.toml" \
+            package/tgdyk doctor > doctor.txt 2>&1
+          set -e
+          cat doctor.txt
+          grep -q '^ok   TDLib:' doctor.txt
           tar -czf "tgdyk-${VERSION}-${{ matrix.target }}.tar.gz" -C package .
           shasum -a 256 "tgdyk-${VERSION}-${{ matrix.target }}.tar.gz" > "tgdyk-${VERSION}-${{ matrix.target }}.tar.gz.sha256"
 
