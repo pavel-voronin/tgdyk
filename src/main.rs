@@ -352,6 +352,10 @@ fn drive_authorization(client: &TdClient, config: &Config, interactive: bool) ->
             }
             "authorizationStateReady" => return Ok(()),
             "authorizationStateWaitOtherDeviceConfirmation" => {
+                ensure_interactive(
+                    interactive,
+                    "run `tgdyk setup` to confirm login from another device",
+                )?;
                 let link = state
                     .get("link")
                     .and_then(Value::as_str)
