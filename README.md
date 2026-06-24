@@ -1,21 +1,31 @@
+<p align="center">
+  <img src="docs/logo.png" width="150" alt="tgdyk logo">
+</p>
+
 # tgdyk
 
-Tiny local Telegram daemon for developers who need raw live TDLib updates.
+Tiny local Telegram daemon for developers who want raw live TDLib updates
+without running a full app.
 
-It keeps one Telegram user session open and streams updates to local tools. It
-does not store history, replay missed updates, or decide what the updates mean.
+Log in once. Keep one Telegram user session open. Stream live updates to local
+tools as newline-delimited JSON.
 
-`tgdyk` is distributed as GitHub release archives, not through crates.io.
-Release archives include both the `tgdyk` binary and TDLib `libtdjson`.
+`tgdyk` does not store history, replay missed updates, or decide what updates
+mean. It is just the local Telegram pipe.
 
-## Install from Release
+## Quick Start
 
-Download the archive for your server from:
+Download an archive from [Releases](https://github.com/pavel-voronin/tgdyk/releases).
+It includes both `tgdyk` and TDLib `libtdjson`.
 
-https://github.com/pavel-voronin/tgdyk/releases
+Pick the archive for your machine:
 
-Linux archives contain `libtdjson.so`; macOS archives contain
-`libtdjson.dylib`. Keep that library next to the `tgdyk` binary.
+- Apple Silicon Mac: `tgdyk-*-aarch64-apple-darwin.tar.gz`
+- Intel Mac: `tgdyk-*-x86_64-apple-darwin.tar.gz`
+- Linux x64: `tgdyk-*-x86_64-unknown-linux-gnu.tar.gz`
+- Linux arm64: `tgdyk-*-aarch64-unknown-linux-gnu.tar.gz`
+
+Unpack it:
 
 ```sh
 mkdir tgdyk
@@ -23,14 +33,12 @@ tar -xzf tgdyk-*.tar.gz -C tgdyk
 cd tgdyk
 ```
 
-Get Telegram API credentials from https://my.telegram.org/apps, then run:
+Get Telegram API credentials from
+[my.telegram.org/apps](https://my.telegram.org/apps), then log in:
 
 ```sh
 ./tgdyk setup
 ```
-
-`setup` asks for `api_id`, `api_hash`, phone number, Telegram login code, and
-2FA password when Telegram requires it.
 
 Run the daemon:
 
@@ -38,28 +46,41 @@ Run the daemon:
 ./tgdyk daemon
 ```
 
-The daemon stays in the foreground. Run it however you normally keep a server
-process alive: systemd, supervisor, tmux, shell wrapper, or a foreground session.
-
 In another terminal, read live updates:
 
 ```sh
 ./tgdyk stream
 ```
 
-`stream` prints newline-delimited raw TDLib JSON. It is live-only: missed updates
-are not replayed. Pipe it to `jq .` if you want pretty output.
-
-Use `doctor` when setup or streaming does not work:
+If something does not work:
 
 ```sh
 ./tgdyk doctor
 ```
 
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `setup` | Saves Telegram API credentials and creates the local TDLib session. |
+| `daemon` | Runs TDLib and publishes live updates over a local Unix socket. |
+| `stream` | Prints live raw TDLib updates as NDJSON. |
+| `doctor` | Checks TDLib, config, paths, socket, and daemon connectivity. |
+
+`setup` asks for `api_id`, `api_hash`, phone number, Telegram login code, and
+2FA password when Telegram requires it.
+
+The daemon stays in the foreground. Run it with systemd, supervisor, tmux, a
+shell wrapper, or whatever you normally use to keep a server process alive.
+
+`stream` is live-only. Start it before the Telegram activity you want to watch.
+
 ## Build from Source
 
 Use this when the release archive does not match your host or when you want to
-provide your own TDLib build. Requires Rust 1.88+ and Unix.
+provide your own TDLib build.
+
+Requires Rust 1.88+ and Unix.
 
 ```sh
 cargo build --release --locked
@@ -84,7 +105,7 @@ TDJSON_PATH=/path/to/libtdjson.so target/release/tgdyk doctor
 `setup` writes Telegram API credentials to:
 
 ```text
-$XDG_CONFIG_HOME/tgdyk/config.toml
+${XDG_CONFIG_HOME:-~/.config}/tgdyk/config.toml
 ```
 
 Supported config keys:
@@ -94,16 +115,19 @@ api_id = 12345
 api_hash = "your_api_hash"
 ```
 
-Default runtime paths:
+Default paths:
 
 ```text
-$XDG_DATA_HOME/tgdyk/tdlib/database
-$XDG_DATA_HOME/tgdyk/tdlib/files
-$XDG_RUNTIME_DIR/tgdyk/tgdyk.sock
+database: ${XDG_DATA_HOME:-~/.local/share}/tgdyk/tdlib/database
+files:    ${XDG_DATA_HOME:-~/.local/share}/tgdyk/tdlib/files
+socket:   $XDG_RUNTIME_DIR/tgdyk/tgdyk.sock
 ```
 
-If `XDG_RUNTIME_DIR` is missing, the socket uses
-`$XDG_CACHE_HOME/tgdyk/run/tgdyk.sock`.
+If `XDG_RUNTIME_DIR` is missing, the socket uses:
+
+```text
+${XDG_CACHE_HOME:-~/.cache}/tgdyk/run/tgdyk.sock
+```
 
 Environment overrides:
 
@@ -115,7 +139,7 @@ TGDYK_CONFIG
 ## Release Maintainers
 
 Build TDLib first with the `Build TDLib` workflow. It publishes assets and
-matching `.sha256` files like:
+matching `.sha256` files:
 
 ```text
 tdlib-x86_64-unknown-linux-gnu.tar.gz
