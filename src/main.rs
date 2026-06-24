@@ -902,7 +902,6 @@ mod tests {
         let config = FileConfig {
             api_id: Some(12345),
             api_hash: Some("hash".to_string()),
-            ..FileConfig::default()
         };
 
         save_file_config(&path, &config).unwrap();
