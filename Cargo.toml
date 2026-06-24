@@ -7,7 +7,7 @@ description = "Tiny local Telegram daemon for raw live TDLib updates"
 license = "MIT"
 repository = "https://github.com/pavel-voronin/tgdyk"
 homepage = "https://github.com/pavel-voronin/tgdyk"
-exclude = ["docs/**", ".github/**"]
+include = ["src/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
 
 [dependencies]
 anyhow = "1.0.102"
