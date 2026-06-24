@@ -78,8 +78,12 @@ jobs:
             -DTD_ENABLE_JNI=OFF
           )
           if [ "$RUNNER_OS" = "macOS" ]; then
+            openssl_prefix="$(brew --prefix openssl@3)"
             args+=(
-              -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+              -DOPENSSL_ROOT_DIR="$openssl_prefix"
+              -DOPENSSL_SSL_LIBRARY="$openssl_prefix/lib/libssl.a"
+              -DOPENSSL_CRYPTO_LIBRARY="$openssl_prefix/lib/libcrypto.a"
+              -DOPENSSL_LIBRARIES="$openssl_prefix/lib/libssl.a;$openssl_prefix/lib/libcrypto.a"
               -DCMAKE_POLICY_VERSION_MINIMUM=3.5
               -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
             )
