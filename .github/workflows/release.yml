@@ -28,20 +28,33 @@ jobs:
       - uses: actions/checkout@v4
 
       - id: meta
+        env:
+          INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          INPUT_TDLIB_RELEASE_TAG: ${{ github.event.inputs.tdlib_release_tag }}
+          VAR_TDLIB_RELEASE_TAG: ${{ vars.TDLIB_RELEASE_TAG }}
         shell: bash
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-          release_tag="${{ github.event.inputs.release_tag }}"
-          tdlib_release_tag="${{ github.event.inputs.tdlib_release_tag }}"
+          release_tag="$INPUT_RELEASE_TAG"
+          tdlib_release_tag="$INPUT_TDLIB_RELEASE_TAG"
 
           if [ -z "$release_tag" ]; then
             release_tag="v$version"
           fi
           if [ -z "$tdlib_release_tag" ]; then
-            tdlib_release_tag="${{ vars.TDLIB_RELEASE_TAG }}"
+            tdlib_release_tag="$VAR_TDLIB_RELEASE_TAG"
           fi
           if [ -z "$tdlib_release_tag" ]; then
             tdlib_release_tag="tdlib-v1.8.0"
+          fi
+
+          if [[ ! "$release_tag" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+            echo "invalid release tag: $release_tag" >&2
+            exit 1
+          fi
+          if [[ ! "$tdlib_release_tag" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+            echo "invalid TDLib release tag: $tdlib_release_tag" >&2
+            exit 1
           fi
 
           if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
