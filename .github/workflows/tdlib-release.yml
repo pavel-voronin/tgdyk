@@ -1,0 +1,144 @@
+name: Build TDLib
+
+on:
+  workflow_dispatch:
+    inputs:
+      tdlib_ref:
+        description: TDLib git ref to build
+        required: true
+        default: v1.8.0
+      release_tag:
+        description: Release tag for TDLib assets
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+    steps:
+      - id: meta
+        shell: bash
+        run: |
+          release_tag="${{ inputs.release_tag }}"
+          if [ -z "$release_tag" ]; then
+            release_tag="tdlib-${{ inputs.tdlib_ref }}"
+          fi
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            lib: libtdjson.so
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            lib: libtdjson.so
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            lib: libtdjson.dylib
+          - target: aarch64-apple-darwin
+            os: macos-15
+            lib: libtdjson.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: tdlib/td
+          ref: ${{ inputs.tdlib_ref }}
+          path: td
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake gperf libssl-dev ninja-build php-cli zlib1g-dev
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install gperf ninja openssl@3 php
+
+      - name: Configure TDLib
+        shell: bash
+        run: |
+          args=(
+            -S td
+            -B build
+            -G Ninja
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_INSTALL_PREFIX="$PWD/install"
+            -DOPENSSL_USE_STATIC_LIBS=ON
+            -DZLIB_USE_STATIC_LIBS=ON
+            -DTD_ENABLE_JNI=OFF
+          )
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            args+=(
+              -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+            )
+          fi
+          cmake "${args[@]}"
+
+      - name: Build TDLib
+        run: cmake --build build --target install --parallel 2
+
+      - name: Package TDLib
+        shell: bash
+        run: |
+          mkdir -p package
+          cp -a install/lib/${{ matrix.lib }}* package/
+          cp td/LICENSE_1_0.txt package/TDLIB-LICENSE_1_0.txt
+          printf '%s\n' '${{ inputs.tdlib_ref }}' > package/TDLIB_REF
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            otool -L "package/${{ matrix.lib }}" | tee deps.txt
+            if grep -E '/opt/homebrew|/usr/local/opt|libssl|libcrypto' deps.txt; then
+              echo "libtdjson has non-portable OpenSSL/Homebrew dependencies" >&2
+              exit 1
+            fi
+          else
+            ldd "package/${{ matrix.lib }}" | tee deps.txt
+            if grep -E 'libssl|libcrypto' deps.txt; then
+              echo "libtdjson has non-portable OpenSSL dependencies" >&2
+              exit 1
+            fi
+          fi
+          tar -czf "tdlib-${{ matrix.target }}.tar.gz" -C package .
+          shasum -a 256 "tdlib-${{ matrix.target }}.tar.gz" > "tdlib-${{ matrix.target }}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tdlib-${{ matrix.target }}
+          path: |
+            tdlib-${{ matrix.target }}.tar.gz
+            tdlib-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish TDLib release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          TDLIB_REF: ${{ inputs.tdlib_ref }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --notes "Prebuilt TDLib shared libraries from tdlib/td@$TDLIB_REF."
+          gh release upload "$RELEASE_TAG" artifacts/*.tar.gz artifacts/*.sha256

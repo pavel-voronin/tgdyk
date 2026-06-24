@@ -1,0 +1,160 @@
+name: Release tgdyk
+
+on:
+  push:
+    tags:
+      - v*.*.*
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: tgdyk release tag
+        required: false
+      tdlib_release_tag:
+        description: TDLib release tag to use
+        required: false
+        default: tdlib-v1.8.0
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      tdlib_release_tag: ${{ steps.meta.outputs.tdlib_release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        shell: bash
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          release_tag="${{ github.event.inputs.release_tag }}"
+          tdlib_release_tag="${{ github.event.inputs.tdlib_release_tag }}"
+
+          if [ -z "$release_tag" ]; then
+            release_tag="v$version"
+          fi
+          if [ -z "$tdlib_release_tag" ]; then
+            tdlib_release_tag="${{ vars.TDLIB_RELEASE_TAG }}"
+          fi
+          if [ -z "$tdlib_release_tag" ]; then
+            tdlib_release_tag="tdlib-v1.8.0"
+          fi
+
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+          if [ "$release_tag" != "v$version" ]; then
+            echo "release tag $release_tag does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "release_tag=$release_tag"
+            echo "tdlib_release_tag=$tdlib_release_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check TDLib release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "${{ steps.meta.outputs.tdlib_release_tag }}" >/dev/null
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            lib: libtdjson.so
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            lib: libtdjson.so
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            lib: libtdjson.dylib
+          - target: aarch64-apple-darwin
+            os: macos-15
+            lib: libtdjson.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Download TDLib
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TDLIB_RELEASE_TAG: ${{ needs.prepare.outputs.tdlib_release_tag }}
+        run: |
+          mkdir -p tdlib-asset tdlib
+          gh release download "$TDLIB_RELEASE_TAG" \
+            --pattern "tdlib-${{ matrix.target }}.tar.gz" \
+            --dir tdlib-asset
+          tar -xzf "tdlib-asset/tdlib-${{ matrix.target }}.tar.gz" -C tdlib
+
+      - name: Build tgdyk
+        run: cargo build --release --locked
+
+      - name: Package tgdyk
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p package
+          cp target/release/tgdyk package/
+          cp -a tdlib/libtdjson* package/
+          cp tdlib/TDLIB-LICENSE_1_0.txt package/
+          cp LICENSE README.md package/
+
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            otool -L "package/${{ matrix.lib }}"
+          else
+            ldd "package/${{ matrix.lib }}" || true
+          fi
+
+          package/tgdyk --help >/dev/null
+          tar -czf "tgdyk-${VERSION}-${{ matrix.target }}.tar.gz" -C package .
+          shasum -a 256 "tgdyk-${VERSION}-${{ matrix.target }}.tar.gz" > "tgdyk-${VERSION}-${{ matrix.target }}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tgdyk-${{ matrix.target }}
+          path: |
+            tgdyk-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.tar.gz
+            tgdyk-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish tgdyk release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TDLIB_RELEASE_TAG: ${{ needs.prepare.outputs.tdlib_release_tag }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "$RELEASE_TAG" \
+              --notes "tgdyk $VERSION with TDLib assets from $TDLIB_RELEASE_TAG."
+          gh release upload "$RELEASE_TAG" artifacts/*.tar.gz artifacts/*.sha256
