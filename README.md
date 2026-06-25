@@ -37,6 +37,18 @@ tar -xzf tgdyk-*.tar.gz -C tgdyk
 cd tgdyk
 ```
 
+On macOS, clear the quarantine attribute:
+
+```sh
+xattr -dr com.apple.quarantine .
+```
+
+Make the binary executable:
+
+```sh
+chmod +x ./tgdyk
+```
+
 Get Telegram API credentials from
 [my.telegram.org/apps](https://my.telegram.org/apps), then log in:
 
