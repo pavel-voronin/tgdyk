@@ -12,7 +12,7 @@ on:
       tdlib_release_tag:
         description: TDLib release tag to use
         required: false
-        default: tdlib-v1.8.0
+        default: tdlib-a17f87c
 
 permissions:
   contents: write
@@ -31,7 +31,6 @@ jobs:
         env:
           INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
           INPUT_TDLIB_RELEASE_TAG: ${{ github.event.inputs.tdlib_release_tag }}
-          VAR_TDLIB_RELEASE_TAG: ${{ vars.TDLIB_RELEASE_TAG }}
         shell: bash
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
@@ -42,10 +41,7 @@ jobs:
             release_tag="v$version"
           fi
           if [ -z "$tdlib_release_tag" ]; then
-            tdlib_release_tag="$VAR_TDLIB_RELEASE_TAG"
-          fi
-          if [ -z "$tdlib_release_tag" ]; then
-            tdlib_release_tag="tdlib-v1.8.0"
+            tdlib_release_tag="tdlib-a17f87c"
           fi
 
           if [[ ! "$release_tag" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then

@@ -6,7 +6,7 @@ on:
       tdlib_ref:
         description: TDLib git ref to build
         required: true
-        default: v1.8.0
+        default: a17f87c4cff7b90b278d12b91ba0614383aaee82
       release_tag:
         description: Release tag for TDLib assets
         required: false
@@ -35,7 +35,7 @@ jobs:
             exit 1
           fi
           if [ -z "$release_tag" ]; then
-            release_tag="tdlib-$tdlib_ref"
+            release_tag="tdlib-${tdlib_ref:0:7}"
           fi
           if [[ ! "$release_tag" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
             echo "invalid release tag: $release_tag" >&2

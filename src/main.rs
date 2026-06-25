@@ -424,25 +424,19 @@ fn tdlib_parameters_request(config: &Config) -> Result<Value> {
 
     Ok(json!({
         "@type": "setTdlibParameters",
-        "parameters": {
-            "@type": "tdlibParameters",
-            "use_test_dc": false,
-            "database_directory": config.database_dir,
-            "files_directory": config.files_dir,
-            "database_encryption_key": "",
-            "use_file_database": true,
-            "use_chat_info_database": true,
-            "use_message_database": true,
-            "use_secret_chats": false,
-            "api_id": api_id,
-            "api_hash": api_hash,
-            "system_language_code": "en",
-            "device_model": "tgdyk",
-            "system_version": std::env::consts::OS,
-            "application_version": env!("CARGO_PKG_VERSION"),
-            "enable_storage_optimizer": true,
-            "ignore_file_names": false,
-        },
+        "use_test_dc": false,
+        "database_directory": config.database_dir,
+        "files_directory": config.files_dir,
+        "use_file_database": true,
+        "use_chat_info_database": true,
+        "use_message_database": true,
+        "use_secret_chats": false,
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "system_language_code": "en",
+        "device_model": "tgdyk",
+        "system_version": std::env::consts::OS,
+        "application_version": env!("CARGO_PKG_VERSION"),
     }))
 }
 
@@ -931,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn wraps_tdlib_parameters_for_tdlib_1_8() {
+    fn sends_tdlib_parameters_for_current_tdlib_schema() {
         let dir = temp_test_dir("tdlib-params");
         let config = Config {
             config_file: dir.join("config.toml"),
@@ -946,17 +940,13 @@ mod tests {
         let request = tdlib_parameters_request(&config).unwrap();
 
         assert_eq!(type_name(&request), Some("setTdlibParameters"));
-        let parameters = request.get("parameters").unwrap();
-        assert_eq!(type_name(parameters), Some("tdlibParameters"));
+        assert_eq!(request.get("api_id").and_then(Value::as_i64), Some(12345));
         assert_eq!(
-            parameters.get("api_id").and_then(Value::as_i64),
-            Some(12345)
-        );
-        assert_eq!(
-            parameters.get("api_hash").and_then(Value::as_str),
+            request.get("api_hash").and_then(Value::as_str),
             Some("hash")
         );
-        assert!(request.get("api_id").is_none());
+        assert!(request.get("parameters").is_none());
+        assert!(request.get("database_encryption_key").is_none());
 
         fs::remove_dir_all(dir).unwrap();
     }
