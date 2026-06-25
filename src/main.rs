@@ -325,24 +325,7 @@ fn drive_authorization(client: &TdClient, config: &Config, interactive: bool) ->
 
         match state_name {
             "authorizationStateWaitTdlibParameters" => {
-                let (api_id, api_hash) = credentials(config)?;
-                client.send(json!({
-                    "@type": "setTdlibParameters",
-                    "use_test_dc": false,
-                    "database_directory": config.database_dir,
-                    "files_directory": config.files_dir,
-                    "database_encryption_key": "",
-                    "use_file_database": true,
-                    "use_chat_info_database": true,
-                    "use_message_database": true,
-                    "use_secret_chats": false,
-                    "api_id": api_id,
-                    "api_hash": api_hash,
-                    "system_language_code": "en",
-                    "device_model": "tgdyk",
-                    "system_version": std::env::consts::OS,
-                    "application_version": env!("CARGO_PKG_VERSION"),
-                }))?;
+                client.send(tdlib_parameters_request(config)?)?;
             }
             "authorizationStateWaitEncryptionKey" => {
                 client.send(json!({
@@ -434,6 +417,33 @@ fn drive_authorization(client: &TdClient, config: &Config, interactive: bool) ->
             other => bail!("unsupported TDLib authorization state: {other}"),
         }
     }
+}
+
+fn tdlib_parameters_request(config: &Config) -> Result<Value> {
+    let (api_id, api_hash) = credentials(config)?;
+
+    Ok(json!({
+        "@type": "setTdlibParameters",
+        "parameters": {
+            "@type": "tdlibParameters",
+            "use_test_dc": false,
+            "database_directory": config.database_dir,
+            "files_directory": config.files_dir,
+            "database_encryption_key": "",
+            "use_file_database": true,
+            "use_chat_info_database": true,
+            "use_message_database": true,
+            "use_secret_chats": false,
+            "api_id": api_id,
+            "api_hash": api_hash,
+            "system_language_code": "en",
+            "device_model": "tgdyk",
+            "system_version": std::env::consts::OS,
+            "application_version": env!("CARGO_PKG_VERSION"),
+            "enable_storage_optimizer": true,
+            "ignore_file_names": false,
+        },
+    }))
 }
 
 fn require_existing_session(config: &Config) -> Result<()> {
@@ -917,6 +927,37 @@ mod tests {
         assert_eq!(mode, PRIVATE_FILE_MODE);
 
         fs::remove_file(path).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn wraps_tdlib_parameters_for_tdlib_1_8() {
+        let dir = temp_test_dir("tdlib-params");
+        let config = Config {
+            config_file: dir.join("config.toml"),
+            tdjson_path: None,
+            api_id: Some(12345),
+            api_hash: Some("hash".to_string()),
+            database_dir: dir.join("database"),
+            files_dir: dir.join("files"),
+            socket_path: dir.join("tgdyk.sock"),
+        };
+
+        let request = tdlib_parameters_request(&config).unwrap();
+
+        assert_eq!(type_name(&request), Some("setTdlibParameters"));
+        let parameters = request.get("parameters").unwrap();
+        assert_eq!(type_name(parameters), Some("tdlibParameters"));
+        assert_eq!(
+            parameters.get("api_id").and_then(Value::as_i64),
+            Some(12345)
+        );
+        assert_eq!(
+            parameters.get("api_hash").and_then(Value::as_str),
+            Some("hash")
+        );
+        assert!(request.get("api_id").is_none());
+
         fs::remove_dir_all(dir).unwrap();
     }
 
