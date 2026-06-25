@@ -49,7 +49,13 @@ Run the daemon:
 In another terminal, read live updates:
 
 ```sh
-./tgdyk stream
+./tgdyk stream | jq .
+```
+
+Or print only new text messages:
+
+```sh
+./tgdyk stream | jq -r 'select(.["@type"] == "updateNewMessage") | .message.content.text.text // empty'
 ```
 
 If something does not work:
